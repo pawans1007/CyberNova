@@ -1,0 +1,13 @@
+ollama
+PySide6
+sounddevice
+vosk
+pyttsx3
+numpy
+faster-whisper
+openwakeword
+ddgs
+requests
+beautifulsoup4
+psutil
+apscheduler>=3.10,<4.0
