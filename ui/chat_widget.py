@@ -1,3 +1,4 @@
+
 import html
 
 from PySide6.QtCore import Signal
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
 class ChatWidget(QWidget):
     message_submitted = Signal(str)
     voice_requested = Signal()
+    stop_requested = Signal()
 
     def __init__(self):
         super().__init__()
@@ -77,6 +79,17 @@ class ChatWidget(QWidget):
             self.submit_message
         )
 
+        self.stop_button = QPushButton(
+            "Stop"
+        )
+        self.stop_button.setObjectName(
+            "Stop"
+        )
+        self.stop_button.setEnabled(False)
+        self.stop_button.clicked.connect(
+            self.stop_requested.emit
+        )
+
         input_layout.addWidget(
             self.input_box,
             1,
@@ -86,6 +99,9 @@ class ChatWidget(QWidget):
         )
         input_layout.addWidget(
             self.send_button
+        )
+        input_layout.addWidget(
+            self.stop_button
         )
 
         layout.addLayout(input_layout)
@@ -166,10 +182,8 @@ class ChatWidget(QWidget):
         if self._stream_cursor is None:
             return
 
-        text = str(chunk)
-
         self._stream_cursor.insertText(
-            text
+            str(chunk)
         )
 
         self.chat_display.setTextCursor(
@@ -205,4 +219,8 @@ class ChatWidget(QWidget):
 
         self.voice_button.setEnabled(
             not busy
+        )
+
+        self.stop_button.setEnabled(
+            busy
         )

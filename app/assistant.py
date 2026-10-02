@@ -1,3 +1,4 @@
+
 from app.intent_router import IntentRouter, IntentType
 from ai.ollama_client import OllamaClient
 from ai.context import ConversationContext
@@ -58,10 +59,11 @@ class CyberNovaAssistant:
             user_message,
         )
 
-        self.memory.save_message(
-            "assistant",
-            assistant_message,
-        )
+        if assistant_message:
+            self.memory.save_message(
+                "assistant",
+                assistant_message,
+            )
 
     def _format_search_results(self, result):
         if not result.get("success"):
@@ -281,6 +283,10 @@ class CyberNovaAssistant:
 
         return self.client.get_current_settings()
 
+    def cancel_generation(self):
+        """Request cancellation of the active Ollama stream."""
+        self.client.cancel()
+
     def process_message_stream(
         self,
         message,
@@ -322,24 +328,34 @@ class CyberNovaAssistant:
 
         full_response = []
 
-        for chunk in self.client.stream(
-            self.context.get_messages()
-        ):
-            full_response.append(chunk)
-            on_chunk(chunk)
+        try:
+            for chunk in self.client.stream(
+                self.context.get_messages()
+            ):
+                if self.client.is_cancelled():
+                    break
+
+                full_response.append(chunk)
+                on_chunk(chunk)
+
+        except Exception:
+            if not self.client.is_cancelled():
+                raise
 
         response = "".join(
             full_response
         ).strip()
 
-        self.context.add_assistant_message(
-            response
-        )
+        # Keep a partial response if generation was stopped.
+        if response:
+            self.context.add_assistant_message(
+                response
+            )
 
-        self._save_exchange(
-            message,
-            response,
-        )
+            self._save_exchange(
+                message,
+                response,
+            )
 
         return response
 

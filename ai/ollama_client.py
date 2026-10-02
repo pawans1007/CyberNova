@@ -1,93 +1,107 @@
+
+import json
+import threading
+
+import httpx
 import ollama
-from config import OLLAMA_HOST, OLLAMA_MODEL
 
 
 class OllamaClient:
-    def __init__(self, model=OLLAMA_MODEL, host=OLLAMA_HOST):
+    def __init__(self, host="http://localhost:11434", model="qwen2.5:3b-instruct"):
+        self.host = host.rstrip("/")
         self.model = model
-        self.host = host
+
         self.client = ollama.Client(host=self.host)
 
+        self._http_client = httpx.Client(timeout=None)
+        self._active_response = None
+        self._lock = threading.Lock()
+        self._cancel_event = threading.Event()
+
     def generate(self, messages, num_predict=512):
-        try:
-            response = self.client.chat(
-                model=self.model,
-                messages=messages,
-                options={
-                    "num_predict": num_predict,
-                },
-            )
-
-            return response["message"]["content"]
-
-        except Exception as error:
-            raise RuntimeError(
-                f"Ollama generation failed: {error}"
-            ) from error
+        response = self.client.chat(
+            model=self.model,
+            messages=messages,
+            options={"num_predict": num_predict},
+        )
+        return response["message"]["content"]
 
     def stream(self, messages, num_predict=512):
+        self._cancel_event.clear()
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+            "options": {
+                "num_predict": num_predict,
+            },
+        }
+
+        response = None
+
         try:
-            response = self.client.chat(
-                model=self.model,
-                messages=messages,
-                stream=True,
-                options={
-                    "num_predict": num_predict,
-                },
-            )
+            with self._http_client.stream(
+                "POST",
+                f"{self.host}/api/chat",
+                json=payload,
+            ) as response:
+                with self._lock:
+                    self._active_response = response
 
-            for chunk in response:
-                content = chunk.get(
-                    "message", {}
-                ).get("content", "")
+                if self._cancel_event.is_set():
+                    return
 
-                if content:
-                    yield content
+                for line in response.iter_lines():
+                    if self._cancel_event.is_set():
+                        break
 
-        except Exception as error:
-            raise RuntimeError(
-                f"Ollama streaming failed: {error}"
-            ) from error
+                    if not line:
+                        continue
+
+                    data = json.loads(line)
+
+                    if "error" in data:
+                        raise RuntimeError(data["error"])
+
+                    content = data.get("message", {}).get("content", "")
+                    if content:
+                        yield content
+
+                    if data.get("done", False):
+                        break
+
+        finally:
+            with self._lock:
+                if self._active_response is response:
+                    self._active_response = None
+
+    def cancel(self):
+        self._cancel_event.set()
+
+        with self._lock:
+            response = self._active_response
+
+        if response is not None:
+            try:
+                response.close()
+            except Exception:
+                pass
+
+    def is_cancelled(self):
+        return self._cancel_event.is_set()
 
     def check_connection(self):
         try:
             self.client.list()
-            return True, "Ollama is connected."
+            return True
+        except Exception:
+            return False
 
-        except Exception as error:
-            return False, str(error)
-
-    def update_connection(self, host=None, model=None):
-        new_host = (
-            str(host).strip()
-            if host is not None
-            else self.host
-        )
-
-        new_model = (
-            str(model).strip()
-            if model is not None
-            else self.model
-        )
-
-        if not new_host:
-            raise ValueError(
-                "Ollama host cannot be empty."
-            )
-
-        if not new_model:
-            raise ValueError(
-                "Ollama model cannot be empty."
-            )
-
-        self.host = new_host
-        self.model = new_model
-
-        self.client = ollama.Client(
-            host=self.host
-        )
-
-        return True
+    def update_connection(self, host, model):
+        self.host = host.rstrip("/")
+        self.model = model
+        self.client = ollama.Client(host=self.host)
 
     def get_current_settings(self):
         return {

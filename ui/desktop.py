@@ -1,4 +1,6 @@
+
 import sys
+import threading
 
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import (
@@ -36,6 +38,15 @@ class AssistantWorker(QThread):
 
         self.assistant = assistant
         self.message = message
+        self._cancel_requested = threading.Event()
+
+    def cancel(self):
+        """Request cancellation of the active AI response."""
+        self._cancel_requested.set()
+        self.assistant.cancel_generation()
+
+    def was_cancelled(self):
+        return self._cancel_requested.is_set()
 
     def run(self):
         try:
@@ -44,24 +55,20 @@ class AssistantWorker(QThread):
                 self.chunk_received.emit,
             )
 
-            self.response_ready.emit(
-                str(result)
-            )
+            self.response_ready.emit(str(result))
 
         except Exception as error:
-            self.error_occurred.emit(
-                str(error)
-            )
+            if self.was_cancelled():
+                self.response_ready.emit("")
+            else:
+                self.error_occurred.emit(str(error))
 
 
 class CyberNovaDesktop(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle(
-            "CyberNova | AI Workspace"
-        )
-
+        self.setWindowTitle("CyberNova | AI Workspace")
         self.resize(1200, 760)
         self.setMinimumSize(900, 600)
 
@@ -87,214 +94,116 @@ class CyberNovaDesktop(QMainWindow):
         self.setCentralWidget(root)
 
         root_layout = QHBoxLayout(root)
-        root_layout.setContentsMargins(
-            0, 0, 0, 0
-        )
+        root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
         # Sidebar
         self.sidebar = Sidebar()
-        root_layout.addWidget(
-            self.sidebar
-        )
+        root_layout.addWidget(self.sidebar)
 
         # Main content
         main_area = QWidget()
-
-        main_layout = QVBoxLayout(
-            main_area
-        )
-
-        main_layout.setContentsMargins(
-            0, 0, 0, 0
-        )
+        main_layout = QVBoxLayout(main_area)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
         # Header
         header = QFrame()
         header.setObjectName("Header")
 
-        header_layout = QHBoxLayout(
-            header
-        )
+        header_layout = QHBoxLayout(header)
+        header_layout.setContentsMargins(22, 12, 22, 12)
 
-        header_layout.setContentsMargins(
-            22, 12, 22, 12
-        )
-
-        self.page_title = QLabel(
-            "Chat"
-        )
-
+        self.page_title = QLabel("Chat")
         self.page_title.setStyleSheet(
-            "font-size: 17px; "
-            "font-weight: bold;"
+            "font-size: 17px; font-weight: bold;"
         )
 
-        self.status_label = QLabel(
-            "Ready"
-        )
-        self.status_label.setObjectName(
-            "Muted"
-        )
+        self.status_label = QLabel("Ready")
+        self.status_label.setObjectName("Muted")
 
         self.cybersecurity_nav_button = QPushButton(
             "Cybersecurity Lab"
         )
-
         self.cybersecurity_nav_button.clicked.connect(
-            lambda: self.show_page(
-                "cybersecurity"
-            )
+            lambda: self.show_page("cybersecurity")
         )
 
-        header_layout.addWidget(
-            self.page_title
-        )
-
+        header_layout.addWidget(self.page_title)
         header_layout.addStretch()
-
         header_layout.addWidget(
             self.cybersecurity_nav_button
         )
+        header_layout.addWidget(self.status_label)
 
-        header_layout.addWidget(
-            self.status_label
-        )
-
-        main_layout.addWidget(
-            header
-        )
+        main_layout.addWidget(header)
 
         # Page stack
         self.stack = QStackedWidget()
-
-        main_layout.addWidget(
-            self.stack,
-            1,
-        )
+        main_layout.addWidget(self.stack, 1)
 
         # Chat page
         self.chat_page = ChatWidget()
 
         # Settings page
         self.settings_page = SettingsPage()
-
         self.settings_page.settings_saved.connect(
             self.handle_settings_saved
         )
 
         # Tasks page
         self.tasks_page = QWidget()
+        tasks_layout = QVBoxLayout(self.tasks_page)
+        tasks_layout.setContentsMargins(28, 24, 28, 24)
 
-        tasks_layout = QVBoxLayout(
-            self.tasks_page
-        )
-
-        tasks_layout.setContentsMargins(
-            28, 24, 28, 24
-        )
-
-        tasks_title = QLabel(
-            "Background Tasks"
-        )
-
+        tasks_title = QLabel("Background Tasks")
         tasks_title.setStyleSheet(
-            "font-size: 24px; "
-            "font-weight: bold;"
+            "font-size: 24px; font-weight: bold;"
         )
 
         self.tasks_display = QLabel(
             "No background tasks have been submitted."
         )
+        self.tasks_display.setWordWrap(True)
 
-        self.tasks_display.setWordWrap(
-            True
-        )
+        refresh_button = QPushButton("Refresh Tasks")
+        refresh_button.clicked.connect(self.refresh_tasks)
 
-        refresh_button = QPushButton(
-            "Refresh Tasks"
-        )
-
-        refresh_button.clicked.connect(
-            self.refresh_tasks
-        )
-
-        tasks_layout.addWidget(
-            tasks_title
-        )
-
-        tasks_layout.addWidget(
-            self.tasks_display
-        )
-
-        tasks_layout.addWidget(
-            refresh_button
-        )
-
+        tasks_layout.addWidget(tasks_title)
+        tasks_layout.addWidget(self.tasks_display)
+        tasks_layout.addWidget(refresh_button)
         tasks_layout.addStretch()
 
         # Voice page
         self.voice_page = QWidget()
+        voice_layout = QVBoxLayout(self.voice_page)
+        voice_layout.setContentsMargins(28, 24, 28, 24)
 
-        voice_layout = QVBoxLayout(
-            self.voice_page
-        )
-
-        voice_layout.setContentsMargins(
-            28, 24, 28, 24
-        )
-
-        voice_title = QLabel(
-            "Voice Assistant"
-        )
-
+        voice_title = QLabel("Voice Assistant")
         voice_title.setStyleSheet(
-            "font-size: 24px; "
-            "font-weight: bold;"
+            "font-size: 24px; font-weight: bold;"
         )
 
         voice_description = QLabel(
             "Use the microphone button in the chat "
             "to speak to CyberNova."
         )
-
-        voice_description.setWordWrap(
-            True
-        )
+        voice_description.setWordWrap(True)
 
         self.voice_status = QLabel(
             "Voice recognition is ready."
         )
+        self.voice_status.setWordWrap(True)
 
-        self.voice_status.setWordWrap(
-            True
-        )
-
-        self.voice_button = QPushButton(
-            "Start Listening"
-        )
-
+        self.voice_button = QPushButton("Start Listening")
         self.voice_button.clicked.connect(
             self.start_voice_recognition
         )
 
-        voice_layout.addWidget(
-            voice_title
-        )
-
-        voice_layout.addWidget(
-            voice_description
-        )
-
-        voice_layout.addWidget(
-            self.voice_status
-        )
-
-        voice_layout.addWidget(
-            self.voice_button
-        )
-
+        voice_layout.addWidget(voice_title)
+        voice_layout.addWidget(voice_description)
+        voice_layout.addWidget(self.voice_status)
+        voice_layout.addWidget(self.voice_button)
         voice_layout.addStretch()
 
         # Cybersecurity Lab page
@@ -310,9 +219,7 @@ class CyberNovaDesktop(QMainWindow):
         }
 
         for page in self.pages.values():
-            self.stack.addWidget(
-                page
-            )
+            self.stack.addWidget(page)
 
         # Navigation
         self.sidebar.page_selected.connect(
@@ -323,24 +230,18 @@ class CyberNovaDesktop(QMainWindow):
         self.chat_page.message_submitted.connect(
             self.send_message
         )
-
         self.chat_page.voice_requested.connect(
             self.start_voice_recognition
         )
+        self.chat_page.stop_requested.connect(
+            self.stop_generation
+        )
 
         # Layout and appearance
-        root_layout.addWidget(
-            main_area,
-            1,
-        )
+        root_layout.addWidget(main_area, 1)
+        self.setStyleSheet(APP_STYLE)
 
-        self.setStyleSheet(
-            APP_STYLE
-        )
-
-        self.show_page(
-            "chat"
-        )
+        self.show_page("chat")
 
         self.chat_page.add_message(
             "CyberNova",
@@ -351,18 +252,11 @@ class CyberNovaDesktop(QMainWindow):
     # Settings integration
     # -----------------------------------------
 
-    def handle_settings_saved(
-        self,
-        values,
-    ):
+    def handle_settings_saved(self, values):
         try:
             self.assistant.update_settings(
-                host=values.get(
-                    "ollama_host"
-                ),
-                model=values.get(
-                    "ollama_model"
-                ),
+                host=values.get("ollama_host"),
+                model=values.get("ollama_model"),
             )
 
             self.status_label.setText(
@@ -388,39 +282,24 @@ class CyberNovaDesktop(QMainWindow):
     # Navigation
     # -----------------------------------------
 
-    def show_page(
-        self,
-        page_name,
-    ):
-        page = self.pages.get(
-            page_name
-        )
+    def show_page(self, page_name):
+        page = self.pages.get(page_name)
 
         if page is None:
             return
 
-        self.stack.setCurrentWidget(
-            page
-        )
+        self.stack.setCurrentWidget(page)
 
         self.page_title.setText(
-            page_name.replace(
-                "_",
-                " ",
-            ).title()
+            page_name.replace("_", " ").title()
         )
 
     # -----------------------------------------
     # Chat and AI
     # -----------------------------------------
 
-    def send_message(
-        self,
-        message,
-    ):
-        message = str(
-            message
-        ).strip()
+    def send_message(self, message):
+        message = str(message).strip()
 
         if not message:
             return
@@ -434,18 +313,13 @@ class CyberNovaDesktop(QMainWindow):
             )
             return
 
-        self.chat_page.add_message(
-            "You",
-            message,
-        )
+        self.chat_page.add_message("You", message)
 
         self.chat_page.start_streaming_message(
             "CyberNova"
         )
 
-        self.chat_page.set_busy(
-            True
-        )
+        self.chat_page.set_busy(True)
 
         self.status_label.setText(
             "Generating response..."
@@ -474,16 +348,33 @@ class CyberNovaDesktop(QMainWindow):
 
         self.worker.start()
 
-    def handle_response(
-        self,
-        response,
-    ):
+    def stop_generation(self):
+        if (
+            self.worker is None
+            or not self.worker.isRunning()
+        ):
+            return
+
+        if self.worker.was_cancelled():
+            return
+
+        self.status_label.setText("Stopping generation...")
+        self.chat_page.stop_button.setEnabled(False)
+
+        self.worker.cancel()
+
+    def handle_response(self, response):
         self.chat_page.finish_streaming_message()
 
-    def handle_error(
-        self,
-        error,
-    ):
+        if (
+            self.worker is not None
+            and self.worker.was_cancelled()
+        ):
+            self.status_label.setText(
+                "Generation stopped"
+            )
+
+    def handle_error(self, error):
         self.chat_page.finish_streaming_message()
 
         self.chat_page.add_message(
@@ -492,13 +383,19 @@ class CyberNovaDesktop(QMainWindow):
         )
 
     def worker_finished(self):
-        self.chat_page.set_busy(
-            False
+        was_cancelled = (
+            self.worker is not None
+            and self.worker.was_cancelled()
         )
 
-        self.status_label.setText(
-            "Ready"
-        )
+        self.chat_page.set_busy(False)
+
+        if was_cancelled:
+            self.status_label.setText(
+                "Generation stopped"
+            )
+        else:
+            self.status_label.setText("Ready")
 
         self.worker = None
 
@@ -553,17 +450,10 @@ class CyberNovaDesktop(QMainWindow):
             "Listening for up to 5 seconds..."
         )
 
-        self.status_label.setText(
-            "Listening..."
-        )
+        self.status_label.setText("Listening...")
+        self.voice_button.setEnabled(False)
 
-        self.voice_button.setEnabled(
-            False
-        )
-
-        self.voice_worker = VoiceWorker(
-            duration=5
-        )
+        self.voice_worker = VoiceWorker(duration=5)
 
         self.voice_worker.transcript_ready.connect(
             self.handle_voice_transcript
@@ -579,13 +469,8 @@ class CyberNovaDesktop(QMainWindow):
 
         self.voice_worker.start()
 
-    def handle_voice_transcript(
-        self,
-        text,
-    ):
-        text = str(
-            text
-        ).strip()
+    def handle_voice_transcript(self, text):
+        text = str(text).strip()
 
         if not text:
             self.voice_status.setText(
@@ -597,14 +482,9 @@ class CyberNovaDesktop(QMainWindow):
             f"Recognized: {text}"
         )
 
-        self.send_message(
-            text
-        )
+        self.send_message(text)
 
-    def handle_voice_error(
-        self,
-        error,
-    ):
+    def handle_voice_error(self, error):
         self.voice_status.setText(
             f"Voice error: {error}"
         )
@@ -615,17 +495,13 @@ class CyberNovaDesktop(QMainWindow):
         )
 
     def voice_worker_finished(self):
-        self.voice_button.setEnabled(
-            True
-        )
+        self.voice_button.setEnabled(True)
 
         if (
             self.worker is None
             or not self.worker.isRunning()
         ):
-            self.status_label.setText(
-                "Ready"
-            )
+            self.status_label.setText("Ready")
 
         self.voice_worker = None
 
@@ -633,10 +509,7 @@ class CyberNovaDesktop(QMainWindow):
     # Application shutdown
     # -----------------------------------------
 
-    def closeEvent(
-        self,
-        event,
-    ):
+    def closeEvent(self, event):
         active_workers = []
 
         if (
@@ -671,8 +544,7 @@ class CyberNovaDesktop(QMainWindow):
 
         if active_workers:
             names = ", ".join(
-                name
-                for name, _ in active_workers
+                name for name, _ in active_workers
             )
 
             QMessageBox.warning(
@@ -692,16 +564,12 @@ class CyberNovaDesktop(QMainWindow):
 
 
 def main():
-    app = QApplication(
-        sys.argv
-    )
+    app = QApplication(sys.argv)
 
     window = CyberNovaDesktop()
     window.show()
 
-    sys.exit(
-        app.exec()
-    )
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":
