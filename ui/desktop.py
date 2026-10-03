@@ -23,6 +23,7 @@ from ui.sidebar import Sidebar
 from ui.chat_widget import ChatWidget
 from ui.settings import SettingsPage
 from ui.cybersecurity_page import CybersecurityPage
+from ui.memory_page import MemoryPage
 from ui.styles import APP_STYLE
 
 from voice.listener import VoiceWorker, VoiceService
@@ -145,6 +146,11 @@ class CyberNovaDesktop(QMainWindow):
         # Chat page
         self.chat_page = ChatWidget()
 
+        # Memory Dashboard page
+        self.memory_page = MemoryPage(
+            self.assistant.memory
+        )
+
         # Settings page
         self.settings_page = SettingsPage()
         self.settings_page.settings_saved.connect(
@@ -212,6 +218,7 @@ class CyberNovaDesktop(QMainWindow):
         # Register pages
         self.pages = {
             "chat": self.chat_page,
+            "memory": self.memory_page,
             "tasks": self.tasks_page,
             "voice": self.voice_page,
             "settings": self.settings_page,
@@ -293,6 +300,10 @@ class CyberNovaDesktop(QMainWindow):
         self.page_title.setText(
             page_name.replace("_", " ").title()
         )
+
+        # Refresh memories whenever the page is opened
+        if page_name == "memory":
+            self.memory_page.load_memories()
 
     # -----------------------------------------
     # Chat and AI

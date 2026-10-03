@@ -1,3 +1,4 @@
+
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -7,9 +8,7 @@ from config import DATABASE_PATH
 
 class Database:
     def __init__(self, db_path=None):
-        self.db_path = Path(
-            db_path or DATABASE_PATH
-        )
+        self.db_path = Path(db_path or DATABASE_PATH)
 
         self.db_path.parent.mkdir(
             parents=True,
@@ -28,9 +27,7 @@ class Database:
         connection.row_factory = sqlite3.Row
 
         try:
-            connection.execute(
-                "PRAGMA foreign_keys = ON"
-            )
+            connection.execute("PRAGMA foreign_keys = ON")
             yield connection
             connection.commit()
         except Exception:
@@ -76,4 +73,14 @@ class Database:
                     created_at TEXT NOT NULL
                         DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE TABLE IF NOT EXISTS conversation_state (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    summary TEXT NOT NULL DEFAULT '',
+                    updated_at TEXT NOT NULL
+                        DEFAULT CURRENT_TIMESTAMP
+                );
+
+                INSERT OR IGNORE INTO conversation_state (id, summary)
+                VALUES (1, '');
             """)

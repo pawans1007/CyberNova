@@ -1,3 +1,4 @@
+
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QFrame,
@@ -13,6 +14,7 @@ class Sidebar(QFrame):
 
     def __init__(self):
         super().__init__()
+
         self.setObjectName("Sidebar")
         self.setFixedWidth(210)
 
@@ -34,6 +36,7 @@ class Sidebar(QFrame):
 
         pages = [
             ("Chat", "chat"),
+            ("Memory", "memory"),
             ("Tasks", "tasks"),
             ("Voice", "voice"),
             ("Settings", "settings"),
@@ -49,6 +52,7 @@ class Sidebar(QFrame):
             button.clicked.connect(
                 lambda checked=False, p=page: self.select_page(p)
             )
+
             layout.addWidget(button)
             self.buttons[page] = button
 

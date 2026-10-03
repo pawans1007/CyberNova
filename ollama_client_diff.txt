@@ -1,0 +1,181 @@
+diff --git a/ai/ollama_client.py b/ai/ollama_client.py
+index 4c79e0b..08eff7b 100644
+--- a/ai/ollama_client.py
++++ b/ai/ollama_client.py
+@@ -1,93 +1,107 @@
++
++import json
++import threading
++
++import httpx
+ import ollama
+-from config import OLLAMA_HOST, OLLAMA_MODEL
+ 
+ 
+ class OllamaClient:
+-    def __init__(self, model=OLLAMA_MODEL, host=OLLAMA_HOST):
++    def __init__(self, host="http://localhost:11434", model="qwen2.5:3b-instruct"):
++        self.host = host.rstrip("/")
+         self.model = model
+-        self.host = host
++
+         self.client = ollama.Client(host=self.host)
+ 
++        self._http_client = httpx.Client(timeout=None)
++        self._active_response = None
++        self._lock = threading.Lock()
++        self._cancel_event = threading.Event()
++
+     def generate(self, messages, num_predict=512):
+-        try:
+-            response = self.client.chat(
+-                model=self.model,
+-                messages=messages,
+-                options={
+-                    "num_predict": num_predict,
+-                },
+-            )
++        response = self.client.chat(
++            model=self.model,
++            messages=messages,
++            options={"num_predict": num_predict},
++        )
++        return response["message"]["content"]
+ 
+-            return response["message"]["content"]
++    def stream(self, messages, num_predict=512):
++        self._cancel_event.clear()
+ 
+-        except Exception as error:
+-            raise RuntimeError(
+-                f"Ollama generation failed: {error}"
+-            ) from error
++        payload = {
++            "model": self.model,
++            "messages": messages,
++            "stream": True,
++            "options": {
++                "num_predict": num_predict,
++            },
++        }
+ 
+-    def stream(self, messages, num_predict=512):
+-        try:
+-            response = self.client.chat(
+-                model=self.model,
+-                messages=messages,
+-                stream=True,
+-                options={
+-                    "num_predict": num_predict,
+-                },
+-            )
+-
+-            for chunk in response:
+-                content = chunk.get(
+-                    "message", {}
+-                ).get("content", "")
+-
+-                if content:
+-                    yield content
+-
+-        except Exception as error:
+-            raise RuntimeError(
+-                f"Ollama streaming failed: {error}"
+-            ) from error
++        response = None
+ 
+-    def check_connection(self):
+         try:
+-            self.client.list()
+-            return True, "Ollama is connected."
++            with self._http_client.stream(
++                "POST",
++                f"{self.host}/api/chat",
++                json=payload,
++            ) as response:
++                with self._lock:
++                    self._active_response = response
+ 
+-        except Exception as error:
+-            return False, str(error)
++                if self._cancel_event.is_set():
++                    return
+ 
+-    def update_connection(self, host=None, model=None):
+-        new_host = (
+-            str(host).strip()
+-            if host is not None
+-            else self.host
+-        )
++                for line in response.iter_lines():
++                    if self._cancel_event.is_set():
++                        break
+ 
+-        new_model = (
+-            str(model).strip()
+-            if model is not None
+-            else self.model
+-        )
++                    if not line:
++                        continue
+ 
+-        if not new_host:
+-            raise ValueError(
+-                "Ollama host cannot be empty."
+-            )
++                    data = json.loads(line)
+ 
+-        if not new_model:
+-            raise ValueError(
+-                "Ollama model cannot be empty."
+-            )
++                    if "error" in data:
++                        raise RuntimeError(data["error"])
+ 
+-        self.host = new_host
+-        self.model = new_model
++                    content = data.get("message", {}).get("content", "")
++                    if content:
++                        yield content
+ 
+-        self.client = ollama.Client(
+-            host=self.host
+-        )
++                    if data.get("done", False):
++                        break
++
++        finally:
++            with self._lock:
++                if self._active_response is response:
++                    self._active_response = None
++
++    def cancel(self):
++        self._cancel_event.set()
++
++        with self._lock:
++            response = self._active_response
++
++        if response is not None:
++            try:
++                response.close()
++            except Exception:
++                pass
++
++    def is_cancelled(self):
++        return self._cancel_event.is_set()
+ 
+-        return True
++    def check_connection(self):
++        try:
++            self.client.list()
++            return True
++        except Exception:
++            return False
++
++    def update_connection(self, host, model):
++        self.host = host.rstrip("/")
++        self.model = model
++        self.client = ollama.Client(host=self.host)
+ 
+     def get_current_settings(self):
+         return {

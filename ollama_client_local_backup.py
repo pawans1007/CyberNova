@@ -39,11 +39,9 @@ class ConversationContext:
         self._trim()
 
     def set_summary(self, summary):
-        """Store a summary of older conversation messages."""
         self.summary = str(summary).strip()
 
     def get_messages(self):
-        """Return a copy of the context for the AI model."""
         result = [self.messages[0].copy()]
 
         if self.summary:
@@ -67,7 +65,7 @@ class ConversationContext:
     def get_messages_for_summary(self):
         """
         Return older messages that should be summarized.
-        Keep the most recent messages in the active context.
+        Returns an empty list if summarization is not needed.
         """
         recent = self.messages[1:]
 
@@ -86,15 +84,12 @@ class ConversationContext:
         if older and older[-1]["role"] == "user":
             older = older[:-1]
 
-        return [
-            message.copy()
-            for message in older
-        ]
+        return [message.copy() for message in older]
 
     def apply_summary(self, summarized_messages, new_summary):
         """
-        Replace older messages with a summary.
-        Apply only if the selected messages still match
+        Replace the selected older messages with a summary.
+        Only applies if the selected messages still match
         the beginning of the current conversation.
         """
         if not summarized_messages or not new_summary:
@@ -117,7 +112,6 @@ class ConversationContext:
         return True
 
     def clear(self):
-        """Clear the conversation and its summary."""
         self.summary = ""
 
         self.messages = [
@@ -129,23 +123,18 @@ class ConversationContext:
 
     def _trim(self):
         """
-        Keep recent messages within both message-count
-        and character limits.
-
-        Avoid starting retained history with an
-        assistant message without its preceding user message.
+        Apply message and character limits.
+        This is a fallback limit; normal summarization
+        should happen before the conversation reaches it.
         """
         recent = self.messages[1:]
 
-        # First apply the message-count limit.
         if len(recent) > self.max_messages:
             recent = recent[-self.max_messages:]
 
-        # Remove an orphaned assistant message at the start.
         if recent and recent[0]["role"] == "assistant":
             recent = recent[1:]
 
-        # Then apply the character limit.
         total_chars = sum(
             len(message["content"])
             for message in recent
@@ -155,7 +144,6 @@ class ConversationContext:
             removed = recent.pop(0)
             total_chars -= len(removed["content"])
 
-            # Keep user/assistant exchanges together where possible.
             if recent and recent[0]["role"] == "assistant":
                 removed = recent.pop(0)
                 total_chars -= len(removed["content"])
